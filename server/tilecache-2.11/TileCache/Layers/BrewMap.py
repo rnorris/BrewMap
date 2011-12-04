@@ -7,6 +7,7 @@ from TileCache.Layer import MetaLayer
 import psycopg2 as psycopg2
 import psycopg2.extras
 import json
+import string
 from pprint import pprint
 
 class BrewMap(MetaLayer):
@@ -24,14 +25,20 @@ class BrewMap(MetaLayer):
     
     def __init__ (self, name, mapfile = None, projection = None, 
                   dbname='osm_gb', uname='graham', passwd='1234',
-                  debug=False, verbose=False, **kwargs):
+                  debug='False', verbose=False, **kwargs):
         MetaLayer.__init__(self, name, **kwargs) 
         self.mapfile = mapfile
         self.projection = projection
         self.dbname = dbname
         self.uname=uname
         self.passwd=passwd
-        self.debug = debug
+
+        if (string.lower(debug)=='true'):
+            self.debug = True
+        else:
+            self.debug = False
+        if self.debug:
+            print "Content: text/html\n\n"
 
     def query2obj(self,sqlstr):
         """
@@ -43,14 +50,14 @@ class BrewMap(MetaLayer):
         called 'point' with 'lat' and 'lng' entries in it.
         """
         connStr = 'dbname=%s user=%s' % (self.dbname,self.uname)
-        if self.debug: print "connStr=%s" % (connStr)
+        #if self.debug: print "connStr=%s" % (connStr)
         connection = psycopg2.connect(connStr)
         mark = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         mark.execute(sqlstr)
         records = mark.fetchall()
 
-        if self.debug:
-            if len(records)!=0: print "records=",records
+        #if self.debug:
+        #    if len(records)!=0: print "records=",records
         microbreweries={}
         if len(records)!=0:
             for record in records:
@@ -93,8 +100,10 @@ class BrewMap(MetaLayer):
         """
         if self.debug: print "make_json"
         # Loop through each layer group
-        retObj = {}
+        retObj = {'layerGroups':{}}
         for lg in seto['layerGroups']:
+            if self.debug: print "layerGroup=%s" % lg
+            lgObj = {'layerGroupName':lg, 'layers':{}}
             layerGroup = seto['layerGroups'][lg]
             sqlSelectCol = layerGroup['sqlSelectCol']
             sqlSelectPoint = layerGroup['sqlSelectPoint']
@@ -105,23 +114,31 @@ class BrewMap(MetaLayer):
             for layerStr in layerGroup['layers']:
                 if self.debug: print "Layer = %s:" % layerStr
                 layer = layerGroup['layers'][layerStr]
-                if self.debug: pprint(layer)
+                #if self.debug: pprint(layer)
                 sqlWhere = layer['sqlWhere']
                 dataFile = layer['dataFile']
                 # Extract data from the points table
                 sqlStr = "%s, %s %s" % \
                     (sqlSelectCol, sqlSelectPoint,sqlWhere)
-                if self.debug: print sqlStr
+                #if self.debug: print sqlStr
                 pointObj = self.query2obj(sqlStr)
                 # Extract data from the polygons table
                 sqlStr = "%s, %s %s" % \
                     (sqlSelectCol, sqlSelectPolygon,sqlWhere)
-                if self.debug: print sqlStr
+                #if self.debug: print sqlStr
                 polyObj = self.query2obj(sqlStr)
                 # Merge the point and polygon data
-                retObj.update(pointObj)
-                retObj.update(polyObj)
-            retObj = self.deleteNullEntries(retObj)
+                layerObj = dict()
+                layerObj['LayerName'] = string.lower(layerStr)
+                layerObj.update(pointObj)
+                layerObj.update(polyObj)
+                if self.debug: print layerObj
+                del pointObj
+                del polyObj
+                lgObj['layers'][layerStr] = layerObj
+                if self.debug: print lgObj
+                del layerObj
+            lgObj = self.deleteNullEntries(lgObj)
 
             ##########################################################
             # Now calculate the tagQueries.json file.
@@ -137,7 +154,7 @@ class BrewMap(MetaLayer):
             tagQuery.update(tagQuery_point)
             tagQuery = self.deleteNullEntries(tagQuery)
 
-
+            retObj['layerGroups'].update(lgObj)
         return retObj
 
 
@@ -168,7 +185,7 @@ class BrewMap(MetaLayer):
 
         #retStr = "mapfile=%s, tile bounds = (%f,%f),(%f,%f)\n" %\
         #    (self.mapfile,bbox[0],bbox[1],bbox[2],bbox[3])
-        tile.data = json.dumps(retObj)
+        tile.data = json.dumps(retObj,sort_keys=True, indent=4)
         if self.debug: print tile.data
         return tile.data
 
@@ -180,59 +197,8 @@ class BrewMap(MetaLayer):
 
 # INIT ----------------------------------------------------------
 if __name__ == "__main__":
-    from optparse import OptionParser
-
-    usage = "Usage %prog [options] "
-    version = "SVN Revision $Rev: 177 $"
-    parser = OptionParser(usage=usage,version=version)
-    parser.add_option("-f", "--file", dest="outfile",
-                      help="filename to use for output",
-                      metavar="FILE")
-    parser.add_option("-c", "--config", dest="configFile",
-                      help="Configuration File Name",
-                      metavar="FILE")
-    parser.add_option("-n", "--dbname", dest="dbname",
-                      help="database name")
-    parser.add_option("-u", "--uname", dest="dbuname",
-                      help="database user name")
-    parser.add_option("-p", "--dbpass", dest="dbpass",
-                      help="database password")
-    parser.add_option("-v", "--verbose", action="store_true",dest="verbose",
-                      help="Include verbose output")
-    parser.add_option("-d", "--debug", action="store_true",dest="debug",
-                      help="Include debug output")
-    parser.set_defaults(
-        configFile = "BrewMap.cfg",
-        outfile = "brewmap",
-        dbname = "osm_gb",
-        dbuname = "graham",
-        dbpass = "1234",
-        debug = False,
-        verbose = False)
-    (options,args)=parser.parse_args()
-    
-    if (debug):
-        options.verbose = True
-        print "options   = %s" % options
-        print "arguments = %s" % args
-
-    try:
-        settingsFile=open(options.configFile)
-        settingsJSON = settingsFile.read()
-    except:
-        print "Error Reading Configuration File: %s.\n" % options.configFile
-
-    try:
-        seto = json.loads(settingsJSON)
-    except:
-        print "oh no - there is an error in the configuration file: %s.\n" %\
-            options.configFile
-        if debug:
-            print sys.exc_info()[0]
-            raise
-
-    #make_brew_json(options)
-    make_json(options,seto)
+    bm = BrewMap(debug=True,mapFile='/home/OSM/code/BrewMap/server/BrewMap.cfg')
+    renderTile({bounds:None})
 
 
 
