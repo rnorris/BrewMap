@@ -45,7 +45,7 @@ class BrewMap(MetaLayer):
         Takes an sql string to use as a query and executes it, 
         returning the result.
         The results are returned as an object.  It expectes the query to return
-        a field called 'way' which is a text formatted postgis geometry 
+        a field called 'wayStr' which is a text formatted postgis geometry 
         (ie POINT( longitude , latitude)).  This is parsed to create an object
         called 'point' with 'lat' and 'lng' entries in it.
         """
@@ -56,18 +56,18 @@ class BrewMap(MetaLayer):
         mark.execute(sqlstr)
         records = mark.fetchall()
 
-        #if self.debug:
-        #    if len(records)!=0: print "records=",records
+        if self.debug:
+            if len(records)!=0: print "records=",records
         microbreweries={}
         if len(records)!=0:
             for record in records:
                 mb = {}
                 point = {}
-                point['lng'] = record['way'].split("POINT(")[1].split(" ")[0]
-                point['lat'] = record['way'].split("POINT(")[1].split(" ")[1]
+                point['lng'] = record['waystr'].split("POINT(")[1].split(" ")[0]
+                point['lat'] = record['waystr'].split("POINT(")[1].split(" ")[1]
                 mb['point'] = point
                 for key in record:
-                    if key != "way":
+                    if key != "waystr":
                         mb[key] = record[key]
                 microbreweries[record['osm_id']] = mb
         
@@ -99,6 +99,10 @@ class BrewMap(MetaLayer):
         makes the json files specified in the settings object seto.
         """
         if self.debug: print "make_json"
+
+        sqlBbox = " and st_intersects(st_transform(way,4326),ST_SetSRID(ST_MakeBox2D(ST_MakePoint(%f,%f), ST_MakePoint(%f,%f)),4326)) " % (bbox)
+        if self.debug: print "sqlBbox=%s" % sqlBbox
+
         # Loop through each layer group
         retObj = {'layerGroups':{}}
         for lg in seto['layerGroups']:
@@ -118,13 +122,13 @@ class BrewMap(MetaLayer):
                 sqlWhere = layer['sqlWhere']
                 dataFile = layer['dataFile']
                 # Extract data from the points table
-                sqlStr = "%s, %s %s" % \
-                    (sqlSelectCol, sqlSelectPoint,sqlWhere)
+                sqlStr = "%s, %s %s %s" % \
+                    (sqlSelectCol, sqlSelectPoint,sqlWhere,sqlBbox)
                 #if self.debug: print sqlStr
                 pointObj = self.query2obj(sqlStr)
                 # Extract data from the polygons table
-                sqlStr = "%s, %s %s" % \
-                    (sqlSelectCol, sqlSelectPolygon,sqlWhere)
+                sqlStr = "%s, %s %s %s" % \
+                    (sqlSelectCol, sqlSelectPolygon,sqlWhere,sqlBbox)
                 #if self.debug: print sqlStr
                 polyObj = self.query2obj(sqlStr)
                 # Merge the point and polygon data
@@ -145,8 +149,8 @@ class BrewMap(MetaLayer):
             sqlStr = "%s, %s %s" % \
                 (sqlSelectCol, sqlSelectPoint,sqlTagQueries)
             tagQuery_point = self.query2obj(sqlStr)
-            sqlStr = "%s, %s %s" % \
-                (sqlSelectCol, sqlSelectPolygon,sqlTagQueries)
+            sqlStr = "%s, %s %s %s" % \
+                (sqlSelectCol, sqlSelectPolygon,sqlTagQueries,sqlBbox)
             tagQuery_poly = self.query2obj(sqlStr)
 
             tagQuery = {}
@@ -178,9 +182,9 @@ class BrewMap(MetaLayer):
                 print sys.exc_info()[0]
                 raise
 
+        if self.debug: print "Content-type: text/html\n\n";
         bbox = tile.bounds()
 
-        if self.debug: print "Content-type: text/html\n\n";
         retObj = self.make_json(seto,bbox)
 
         #retStr = "mapfile=%s, tile bounds = (%f,%f),(%f,%f)\n" %\
