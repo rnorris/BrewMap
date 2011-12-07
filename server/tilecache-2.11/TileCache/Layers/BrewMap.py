@@ -102,22 +102,7 @@ class BrewMap(MetaLayer):
             print "make_json"
 	    print bbox
 
-#        lat1 = bbox[1]
-#        if (bbox[1]>89.): 
-#            lat1=89. 
-#        if (bbox[1]<-89.): 
-#            lat1=-89. 
-#        lat2 = bbox[3]
-#        if (bbox[3]>89.): 
-#            lat2=89. 
-#        if (bbox[3]<-89.): 
-#            lat2=-89. 
-
-#        bbox_corr = (bbox[0],lat1,bbox[2],lat2)
-        bbox_corr = bbox
-	if self.debug: print bbox_corr
-
-        sqlBbox = " and st_intersects(way,st_transform(ST_SetSRID(ST_MakeBox2D(ST_MakePoint(%f,%f), ST_MakePoint(%f,%f)),900913),900913)) " % (bbox_corr)
+        sqlBbox = " and st_intersects(way,ST_SetSRID(ST_MakeBox2D(ST_MakePoint(%f,%f), ST_MakePoint(%f,%f)),900913)) " % (bbox)
         if self.debug: print "sqlBbox=%s" % sqlBbox
 
         # Loop through each layer group
