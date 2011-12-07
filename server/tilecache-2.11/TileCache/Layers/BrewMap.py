@@ -98,7 +98,9 @@ class BrewMap(MetaLayer):
         """
         makes the json files specified in the settings object seto.
         """
-        if self.debug: print "make_json"
+        if self.debug: 
+            print "make_json"
+	    print bbox
 
         lat1 = bbox[1]
         if (bbox[1]>89.): 
@@ -112,6 +114,7 @@ class BrewMap(MetaLayer):
             lat2=-89. 
 
         bbox_corr = (bbox[0],lat1,bbox[2],lat2)
+	if self.debug: print bbox_corr
 
         sqlBbox = " and st_intersects(way,st_transform(ST_SetSRID(ST_MakeBox2D(ST_MakePoint(%f,%f), ST_MakePoint(%f,%f)),4326),900913)) " % (bbox_corr)
         if self.debug: print "sqlBbox=%s" % sqlBbox
