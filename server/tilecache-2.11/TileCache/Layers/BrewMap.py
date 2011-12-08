@@ -45,9 +45,8 @@ class BrewMap(MetaLayer):
         Takes an sql string to use as a query and executes it, 
         returning the result.
         The results are returned as an object.  It expectes the query to return
-        a field called 'wayStr' which is a text formatted postgis geometry 
-        (ie POINT( longitude , latitude)).  This is parsed to create an object
-        called 'point' with 'lat' and 'lng' entries in it.
+        a field called 'wayStr' which is a geoJSON geometry object.
+        It returns an object that is a GeoJSON FeatureCollection Object.
         """
         connStr = 'dbname=%s user=%s' % (self.dbname,self.uname)
         #if self.debug: print "connStr=%s" % (connStr)
@@ -58,20 +57,24 @@ class BrewMap(MetaLayer):
 
         if self.debug:
             if len(records)!=0: print "records=",records
-        microbreweries={}
+
+        retObj = {'type':'FeatureCollection'}
+        retObj['Features']=[]
         if len(records)!=0:
             for record in records:
-                mb = {}
-                point = {}
-                point['lng'] = record['waystr'].split("POINT(")[1].split(" ")[0]
-                point['lat'] = record['waystr'].split("POINT(")[1].split(" ")[1]
-                mb['point'] = point
+                featureObj={'type':'Feature'}
+                geomObj = json.loads(record['waystr'])
+                if self.debug: 
+                    print "geomObj = "
+                    pprint(geomObj)
+                featureObj['geometry']=geomObj
+                featureObj['properties']={}
+
                 for key in record:
                     if key != "waystr":
-                        mb[key] = record[key]
-                microbreweries[record['osm_id']] = mb
-        
-        return microbreweries
+                        featureObj['properties'][key] = record[key]
+                retObj['Features'].append(featureObj)
+        return retObj
 
 
     def deleteNullEntries(self,obj):
@@ -106,10 +109,9 @@ class BrewMap(MetaLayer):
         if self.debug: print "sqlBbox=%s" % sqlBbox
 
         # Loop through each layer group
-        retObj = {'layerGroups':{}}
+        retObj = []
         for lg in seto['layerGroups']:
             if self.debug: print "layerGroup=%s" % lg
-            lgObj = {'layerGroupName':lg, 'layers':{}}
             layerGroup = seto['layerGroups'][lg]
             sqlSelectCol = layerGroup['sqlSelectCol']
             sqlSelectPoint = layerGroup['sqlSelectPoint']
@@ -134,17 +136,17 @@ class BrewMap(MetaLayer):
                 #if self.debug: print sqlStr
                 polyObj = self.query2obj(sqlStr)
                 # Merge the point and polygon data
-                layerObj = dict()
-                layerObj['LayerName'] = string.lower(layerStr)
+        
+                layerObj = {'properties':{
+                        'name':layerStr
+                        }
+                            }
                 layerObj.update(pointObj)
-                layerObj.update(polyObj)
+                layerObj['Features'].append(polyObj['Features'])
                 if self.debug: print layerObj
-                del pointObj
-                del polyObj
-                lgObj['layers'][layerStr] = layerObj
-                if self.debug: print lgObj
-                del layerObj
-            lgObj = self.deleteNullEntries(lgObj)
+                retObj.append(layerObj)
+
+            #retObj = self.deleteNullEntries(retObj)
 
             ##########################################################
             # Now calculate the tagQueries.json file.
@@ -160,7 +162,6 @@ class BrewMap(MetaLayer):
             tagQuery.update(tagQuery_point)
             tagQuery = self.deleteNullEntries(tagQuery)
 
-            retObj['layerGroups'].update(lgObj)
         return retObj
 
 
